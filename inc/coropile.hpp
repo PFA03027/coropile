@@ -18,11 +18,26 @@
 #include <coroutine>
 #include <functional>
 #include <future>
-#include <iostream>
 #include <list>
 #include <semaphore>
+#include <string>
 #include <thread>
 #include <utility>
+
+#ifdef COROPILE_INTERNAL_DEBUG_LOG
+#include <iostream>
+
+inline void coropile_debug_print( std::string debug_log_str )
+{
+	std::cout << "[tid:" << std::this_thread::get_id() << "] " << debug_log_str << std::endl;
+	return;
+}
+#else
+inline void coropile_debug_print( std::string debug_log_str )
+{
+	return;
+}
+#endif
 
 /**
  * @brief コルーチンスタックを構成するための1スタック分の情報
@@ -67,14 +82,14 @@ struct coropile_promise_type {
 	{
 		// 呼び出しされているコルーチンハンドルのチェーンを結合し、共有する。
 		f.concat_coropile_coroutine_stack( sp_crc_stack_ );
-		std::cout << "#1: coropile_promise_type<ReturnValueType>::await_transform( coropile_awaitable<ValueType2> f ) tid:" << std::this_thread::get_id() << " -> " << sp_crc_stack_->size() << std::endl;
+		coropile_debug_print( std::string( "#1: coropile_promise_type<ReturnValueType>::await_transform( coropile_awaitable<ValueType2> f ) -> " ) + std::to_string( sp_crc_stack_->size() ) );
 
 		return coropile_awaiter<ValueType2> { std::move( f ) };
 	}
 	template <typename ValueType2>
 	coropile_awaiter_future<ValueType2> await_transform( std::future<ValueType2> f )
 	{
-		std::cout << "#1: coropile_promise_type<ReturnValueType>::await_transform( std::future<ValueType2> f ) tid:" << std::this_thread::get_id() << std::endl;
+		coropile_debug_print( std::string( "#1: coropile_promise_type<ReturnValueType>::await_transform( std::future<ValueType2> f )" ) + std::to_string( sp_crc_stack_->size() ) );
 		return coropile_awaiter_future<ValueType2> { std::move( f ), sp_notifier_ };
 	}
 
@@ -100,7 +115,7 @@ struct coropile_promise_type<void> {
 	{
 		// 呼び出しされているコルーチンハンドルのチェーンを結合し、共有する。
 		f.concat_coropile_coroutine_stack( sp_crc_stack_ );
-		std::cout << "#1: coropile_promise_type<void>::await_transform( coropile_awaitable<ValueType2> f ) tid:" << std::this_thread::get_id() << " -> " << sp_crc_stack_->size() << std::endl;
+		coropile_debug_print( std::string( "#1: coropile_promise_type<void>::await_transform( coropile_awaitable<ValueType2> f ) -> " ) + std::to_string( sp_crc_stack_->size() ) );
 
 		return coropile_awaiter<ValueType2> { std::move( f ) };
 	}
@@ -108,7 +123,7 @@ struct coropile_promise_type<void> {
 	template <typename ValueType2>
 	coropile_awaiter_future<ValueType2> await_transform( std::future<ValueType2> f )
 	{
-		std::cout << "#1: coropile_promise_type<void>::await_transform( std::future<ValueType2> f ) tid:" << std::this_thread::get_id() << std::endl;
+		coropile_debug_print( std::string( "#1: coropile_promise_type<void>::await_transform( std::future<ValueType2> f )" ) + std::to_string( sp_crc_stack_->size() ) );
 		return coropile_awaiter_future<ValueType2> { std::move( f ), sp_notifier_ };
 	}
 
@@ -150,12 +165,18 @@ public:
 	{
 		// std::cout << "#1: ~coropile_awaitable tid:" << std::this_thread::get_id() << std::endl;
 		if ( coroh_ != nullptr ) {
-			std::cout << "#2: ~coropile_awaitable calls destroy() tid:" << std::this_thread::get_id() << std::endl;
+			coropile_debug_print( std::string( "#2: ~coropile_awaitable calls destroy()" ) );
 			coroh_.destroy();
 			coroh_ = nullptr;
 		}
 	}
 
+	/**
+	 * @brief コルーチンが再開可能かをチェックする
+	 *
+	 * @return true コルーチン再開可
+	 * @return false コルーチン再開不可
+	 */
 	bool try_wait_notifier( void )
 	{
 		if ( is_completed() ) return true;
@@ -170,15 +191,19 @@ public:
 			return false;
 		}
 
-		std::cout << "#1: try_wait_notifier 2 - tid:" << std::this_thread::get_id() << std::endl;
+		coropile_debug_print( std::string( "#1: try_wait_notifier 2" ) );
 		if ( !sp_crc_stack_->front().sp_notifier_->try_acquire() ) {
 			return false;
 		}
-		std::cout << "#2: try_wait_notifier 2 - tid:" << std::this_thread::get_id() << std::endl;
+		coropile_debug_print( std::string( "#2: try_wait_notifier 2" ) );
 
 		return true;
 	}
 
+	/**
+	 * @brief コルーチンが再開できるまで待つ
+	 *
+	 */
 	void wait_notifier( void )
 	{
 		if ( is_completed() ) return;
@@ -193,9 +218,9 @@ public:
 			return;
 		}
 
-		std::cout << "#1: wait_notifier 2 - tid:" << std::this_thread::get_id() << std::endl;
+		coropile_debug_print( std::string( "#1: wait_notifier 2" ) );
 		sp_crc_stack_->front().sp_notifier_->acquire();
-		std::cout << "#2: wait_notifier 2 - tid:" << std::this_thread::get_id() << std::endl;
+		coropile_debug_print( std::string( "#2: wait_notifier 2" ) );
 
 		return;
 	}
@@ -228,7 +253,7 @@ public:
 			if ( sp_crc_stack_->size() != 0 ) {
 				sp_crc_stack_->front().sp_notifier_->release();
 			}
-			std::cout << "#3: call_resume pop_front!!!!! - tid:" << std::this_thread::get_id() << std::endl;
+			coropile_debug_print( std::string( "#3: call_resume pop_front!!!!!" ) );
 		}
 		return true;
 	}
@@ -303,14 +328,12 @@ struct coropile_awaiter {
 
 	ReturnValueType await_resume()
 	{
-		std::cout << "coropile_awaiter<ReturnValueType>::await_resume - async tid:" << std::this_thread::get_id() << std::endl;
+		coropile_debug_print( std::string( "coropile_awaiter<ReturnValueType>::await_resume - async" ) );
 		if constexpr ( std::is_same<ReturnValueType, void>::value ) {
 			future_.get_return_value();
-			// std::cout << "Awaiter::await_resume get value - async tid:" << std::this_thread::get_id() << std::endl;
 			return;
 		} else {
 			ReturnValueType ans = future_.get_return_value();
-			// std::cout << "Awaiter::await_resume get value - async tid:" << std::this_thread::get_id() << std::endl;
 			return ans;
 		}
 	}
@@ -334,7 +357,7 @@ struct coropile_awaiter_future {
 
 	void await_suspend( std::coroutine_handle<> h )
 	{
-		std::cout << "Awaiter_future<FUTURE_RET_VAL_TYPE>::await_suspend - tid:" << std::this_thread::get_id() << std::endl;
+		coropile_debug_print( std::string( "coropile_awaiter_future<FUTURE_RET_VAL_TYPE>::await_suspend" ) );
 		std::thread( [this]() {
                     future_.wait();
                     notifier_->release(); } )
@@ -345,14 +368,14 @@ struct coropile_awaiter_future {
 	{
 		// std::cout << "Awaiter::await_resume - async tid:" << std::this_thread::get_id() << std::endl;
 		if constexpr ( std::is_same<FUTURE_RET_VAL_TYPE, void>::value ) {
-			std::cout << "Awaiter_future<void>::await_resume - tid:" << std::this_thread::get_id() << std::endl;
+			coropile_debug_print( std::string( "coropile_awaiter_future<void>::await_resume" ) );
 			future_.get();
-			std::cout << "Awaiter_future<void>::await_resume get value - tid:" << std::this_thread::get_id() << std::endl;
+			coropile_debug_print( std::string( "coropile_awaiter_future<void>::await_resume get value" ) );
 			return;
 		} else {
-			std::cout << "Awaiter_future<FUTURE_RET_VAL_TYPE>::await_resume - tid:" << std::this_thread::get_id() << std::endl;
+			coropile_debug_print( std::string( "coropile_awaiter_future<FUTURE_RET_VAL_TYPE>::await_resume" ) );
 			FUTURE_RET_VAL_TYPE ans = future_.get();
-			std::cout << "Awaiter_future<FUTURE_RET_VAL_TYPE>::await_resume get value - tid:" << std::this_thread::get_id() << std::endl;
+			coropile_debug_print( std::string( "coropile_awaiter_future<FUTURE_RET_VAL_TYPE>::await_resume get value" ) );
 			return ans;
 		}
 	}
@@ -361,42 +384,6 @@ private:
 	std::future<FUTURE_RET_VAL_TYPE>            future_;
 	std::shared_ptr<std::counting_semaphore<1>> notifier_;
 };
-#if 0
-template <>
-struct coropile_awaiter_future<void> {
-	explicit coropile_awaiter_future( std::future<void> fu_arg, std::promise<void> p_arg )
-	  : future_( std::move( fu_arg ) )
-	  , notifier_( std::move( p_arg ) )
-	{
-	}
-
-	bool await_ready() const
-	{
-		return future_.wait_for( std::chrono::seconds( 0 ) ) == std::future_status::ready;
-	}
-
-	void await_suspend( std::coroutine_handle<> h )
-	{
-		std::cout << "Awaiter_future<void>::await_suspend - tid:" << std::this_thread::get_id() << std::endl;
-		std::thread( [this]() {
-                    future_.wait();
-                    notifier_.set_value_at_thread_exit(); } )
-			.detach();
-	}
-
-	void await_resume()
-	{
-		std::cout << "Awaiter_future<void>::await_resume - tid:" << std::this_thread::get_id() << std::endl;
-		future_.get();
-		std::cout << "Awaiter_future<void>::await_resume get value - tid:" << std::this_thread::get_id() << std::endl;
-		return;
-	}
-
-private:
-	std::future<void>  future_;
-	std::promise<void> notifier_;
-};
-#endif
 ////////////////////////////////////////////////////////////////////////////////////
 template <typename ReturnValueType>
 coropile_promise_type<ReturnValueType>::coropile_promise_type( void )
@@ -417,7 +404,6 @@ std::suspend_never coropile_promise_type<ReturnValueType>::initial_suspend()
 template <typename ReturnValueType>
 std::suspend_always coropile_promise_type<ReturnValueType>::final_suspend() noexcept( true )
 {
-	// std::cout << "promise_type::final_suspend - async tid:" << std::this_thread::get_id() << std::endl;
 	return std::suspend_always {};
 }
 
@@ -430,9 +416,7 @@ void coropile_promise_type<ReturnValueType>::unhandled_exception()
 template <typename ReturnValueType>
 void coropile_promise_type<ReturnValueType>::return_value( ReturnValueType value )
 {
-	// std::cout << "#1: return_value(ReturnValueType value) tid:" << std::this_thread::get_id() << std::endl;
 	value_.set_value( value );
-	// std::cout << "#2: return_value(ReturnValueType value) tid:" << std::this_thread::get_id() << std::endl;
 	return;
 }
 
@@ -459,7 +443,6 @@ std::suspend_never coropile_promise_type<void>::initial_suspend()
 
 std::suspend_always coropile_promise_type<void>::final_suspend() noexcept( true )
 {
-	// std::cout << "promise_type::final_suspend - async tid:" << std::this_thread::get_id() << std::endl;
 	return std::suspend_always {};
 }
 
@@ -470,9 +453,7 @@ void coropile_promise_type<void>::unhandled_exception()
 
 void coropile_promise_type<void>::return_void()
 {
-	std::cout << "#1: coropile_promise_type<void>::return_void tid:" << std::this_thread::get_id() << std::endl;
 	value_.set_value();
-	std::cout << "#2: coropile_promise_type<void>::return_void tid:" << std::this_thread::get_id() << std::endl;
 	return;
 }
 
